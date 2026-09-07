@@ -1,16 +1,52 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import type { EngineResult } from "@/lib/portfolio/engine";
+import { createClient } from "@/lib/supabase/client";
 
 export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
   const [prices, setPrices] = useState<Record<string, number>>({});
+  // 記錄哪些代號的現價是「自動帶入」的（來自每日收盤價同步），
+  // 使用者手動改過的就不再被自動更新覆蓋掉。
+  const [autoFilled, setAutoFilled] = useState<Record<string, boolean>>({});
+  const [priceFetchedAt, setPriceFetchedAt] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<"pnlPct" | "marketValue" | "cost">("marketValue");
+
+  useEffect(() => {
+    const stockIds = Array.from(new Set(holdings.filter((h) => h.remainingQuantity > 1e-6).map((h) => h.stockId)));
+    if (stockIds.length === 0) return;
+    const supabase = createClient();
+    supabase
+      .from("price_cache")
+      .select("stock_id, last_price, fetched_at")
+      .in("stock_id", stockIds)
+      .then(({ data }) => {
+        if (!data || data.length === 0) return;
+        setPrices((prev) => {
+          const next = { ...prev };
+          const autoNext: Record<string, boolean> = {};
+          let latest: string | null = null;
+          for (const row of data as { stock_id: string; last_price: number | null; fetched_at: string | null }[]) {
+            if (row.last_price == null) continue;
+            // 只在使用者還沒手動填過這檔的現價時才自動帶入
+            if (next[row.stock_id] == null) {
+              next[row.stock_id] = row.last_price;
+              autoNext[row.stock_id] = true;
+            }
+            if (row.fetched_at && (!latest || row.fetched_at > latest)) latest = row.fetched_at;
+          }
+          setAutoFilled((prevAuto) => ({ ...prevAuto, ...autoNext }));
+          if (latest) setPriceFetchedAt(latest);
+          return next;
+        });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdings.length]);
 
   const rows = useMemo(() => {
     const open = holdings.filter((h) => h.remainingQuantity > 1e-6);
@@ -41,7 +77,14 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs text-muted-foreground">
         <Info className="size-3.5 shrink-0" />
-        目前尚未串接即時股價 API，請在「現價」欄位手動輸入以計算未實現損益（之後會自動帶入）。
+        {priceFetchedAt
+          ? `「現價」已自動帶入最近一次同步的收盤價（${new Date(priceFetchedAt).toLocaleString("zh-TW", {
+              month: "numeric",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}），可直接手動修改覆蓋。`
+          : "尚未同步過收盤價，請到「設定」頁按「更新今日收盤價」，或直接在「現價」欄位手動輸入。"}
       </div>
       <div className="flex justify-end gap-2 text-xs">
         <SortButton active={sortKey === "marketValue"} onClick={() => setSortKey("marketValue")} label="依市值排序" />
@@ -78,10 +121,15 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
                     placeholder="輸入現價"
                     className="h-8 w-24 text-right"
                     value={prices[r.stockId] ?? ""}
-                    onChange={(e) =>
-                      setPrices((p) => ({ ...p, [r.stockId]: Number(e.target.value) || 0 }))
-                    }
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setPrices((p) => ({ ...p, [r.stockId]: value === "" ? 0 : Number(value) }));
+                      setAutoFilled((a) => ({ ...a, [r.stockId]: false }));
+                    }}
                   />
+                  {autoFilled[r.stockId] && (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">自動帶入</p>
+                  )}
                 </TableCell>
                 <TableCell className="text-right num-tabular">{formatCurrency(r.marketValue)}</TableCell>
                 <TableCell
