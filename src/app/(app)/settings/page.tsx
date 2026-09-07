@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { SettingsForm } from "@/components/settings/settings-form";
+import { StockSyncCard } from "@/components/settings/stock-sync-card";
 import type { Profile } from "@/types/database";
 
 export default async function SettingsPage() {
@@ -21,6 +22,7 @@ export default async function SettingsPage() {
         <p className="text-sm text-muted-foreground">管理個人資料與計算方式</p>
       </div>
       <SettingsForm profile={profile as Profile} email={user!.email ?? ""} />
+      <StockSyncCard />
     </div>
   );
 }
