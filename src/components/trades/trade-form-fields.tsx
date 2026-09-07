@@ -27,8 +27,12 @@ export function TradeFormFields({
   fieldErrors?: Record<string, string[]>;
 }) {
   const [tradeType, setTradeType] = useState<"buy" | "sell">(defaultValues?.trade_type ?? "buy");
-  const [price, setPrice] = useState(defaultValues?.price ?? 0);
-  const [quantity, setQuantity] = useState(defaultValues?.quantity ?? 0);
+  // 價格/股數改用字串狀態、預設空白（不是 0），使用者可以直接打字不用先刪掉 0，
+  // 送出時交由 zod 的 z.coerce.number() 轉成數字（空字串會變 0）。
+  const [price, setPrice] = useState(defaultValues?.price != null ? String(defaultValues.price) : "");
+  const [quantity, setQuantity] = useState(defaultValues?.quantity != null ? String(defaultValues.quantity) : "");
+  const priceNum = Number(price) || 0;
+  const quantityNum = Number(quantity) || 0;
   const [amount, setAmount] = useState(defaultValues?.amount ?? 0);
   const [amountTouched, setAmountTouched] = useState(false);
 
@@ -73,7 +77,7 @@ export function TradeFormFields({
     setStockNameAuto(false);
   }
 
-  const computedAmount = amountTouched ? amount : Math.round(price * quantity);
+  const computedAmount = amountTouched ? amount : Math.round(priceNum * quantityNum);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -195,8 +199,9 @@ export function TradeFormFields({
           step="0.01"
           min="0"
           required
+          placeholder="0"
           value={price}
-          onChange={(e) => setPrice(Number(e.target.value))}
+          onChange={(e) => setPrice(e.target.value)}
         />
         {fieldErrors?.price && <p className="text-xs text-destructive">{fieldErrors.price[0]}</p>}
       </div>
@@ -210,8 +215,9 @@ export function TradeFormFields({
           step="1"
           min="0"
           required
+          placeholder="0"
           value={quantity}
-          onChange={(e) => setQuantity(Number(e.target.value))}
+          onChange={(e) => setQuantity(e.target.value)}
         />
         {fieldErrors?.quantity && <p className="text-xs text-destructive">{fieldErrors.quantity[0]}</p>}
       </div>
@@ -223,7 +229,8 @@ export function TradeFormFields({
           name="amount"
           type="number"
           step="0.01"
-          value={computedAmount}
+          placeholder="0"
+          value={amountTouched ? amount : computedAmount || ""}
           onChange={(e) => {
             setAmountTouched(true);
             setAmount(Number(e.target.value));
@@ -233,12 +240,28 @@ export function TradeFormFields({
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="fee">手續費</Label>
-        <Input id="fee" name="fee" type="number" step="0.01" min="0" defaultValue={defaultValues?.fee ?? 0} />
+        <Input
+          id="fee"
+          name="fee"
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder="0"
+          defaultValue={defaultValues?.fee ?? undefined}
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="tax">交易稅（賣出才需填）</Label>
-        <Input id="tax" name="tax" type="number" step="0.01" min="0" defaultValue={defaultValues?.tax ?? 0} />
+        <Input
+          id="tax"
+          name="tax"
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder="0"
+          defaultValue={defaultValues?.tax ?? undefined}
+        />
       </div>
 
       <div className="flex flex-col gap-1.5 sm:col-span-2">
