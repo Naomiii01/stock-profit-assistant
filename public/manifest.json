@@ -1,0 +1,14 @@
+{
+  "name": "股票收益小幫手 Stock Profit Assistant",
+  "short_name": "股票小幫手",
+  "description": "AI 驅動的個人投資紀錄與績效分析平台",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
