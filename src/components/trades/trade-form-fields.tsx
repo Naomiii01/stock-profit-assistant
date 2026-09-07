@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Broker, Trade } from "@/types/database";
+import { lookupStockName, TW_STOCK_MAP } from "@/lib/data/tw-stocks";
 
 const MARKET_LABELS: Record<string, string> = {
   TW_LISTED: "上市",
@@ -29,6 +30,25 @@ export function TradeFormFields({
   const [quantity, setQuantity] = useState(defaultValues?.quantity ?? 0);
   const [amount, setAmount] = useState(defaultValues?.amount ?? 0);
   const [amountTouched, setAmountTouched] = useState(false);
+
+  // 股票代號自動帶出名稱：只要使用者沒有自己手動改過名稱，
+  // 代號一有對應資料就自動覆蓋；使用者一旦手動編輯名稱欄位，就不再自動覆蓋。
+  const [stockId, setStockId] = useState(defaultValues?.stock_id ?? "");
+  const [stockName, setStockName] = useState(defaultValues?.stock_name ?? "");
+  const [stockNameAuto, setStockNameAuto] = useState(!defaultValues?.stock_name);
+
+  function handleStockIdChange(value: string) {
+    setStockId(value);
+    if (stockNameAuto) {
+      const matched = lookupStockName(value);
+      if (matched) setStockName(matched);
+    }
+  }
+
+  function handleStockNameChange(value: string) {
+    setStockName(value);
+    setStockNameAuto(false);
+  }
 
   const computedAmount = amountTouched ? amount : Math.round(price * quantity);
 
@@ -79,13 +99,38 @@ export function TradeFormFields({
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="stock_id">股票代號</Label>
-        <Input id="stock_id" name="stock_id" required placeholder="例如 2330" defaultValue={defaultValues?.stock_id ?? ""} />
+        <Input
+          id="stock_id"
+          name="stock_id"
+          required
+          placeholder="例如 2330"
+          list="tw-stock-id-options"
+          value={stockId}
+          onChange={(e) => handleStockIdChange(e.target.value)}
+        />
+        <datalist id="tw-stock-id-options">
+          {Object.entries(TW_STOCK_MAP).map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+        </datalist>
         {fieldErrors?.stock_id && <p className="text-xs text-destructive">{fieldErrors.stock_id[0]}</p>}
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="stock_name">股票名稱</Label>
-        <Input id="stock_name" name="stock_name" required placeholder="例如 台積電" defaultValue={defaultValues?.stock_name ?? ""} />
+        <Input
+          id="stock_name"
+          name="stock_name"
+          required
+          placeholder="例如 台積電（輸入代號可自動帶出）"
+          value={stockName}
+          onChange={(e) => handleStockNameChange(e.target.value)}
+        />
+        {stockNameAuto && stockName && (
+          <p className="text-xs text-muted-foreground">已依代號自動帶入，如需修改可直接編輯</p>
+        )}
         {fieldErrors?.stock_name && <p className="text-xs text-destructive">{fieldErrors.stock_name[0]}</p>}
       </div>
 
