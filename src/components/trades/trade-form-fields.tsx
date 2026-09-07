@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Broker, Trade } from "@/types/database";
-import { lookupStockName, TW_STOCK_MAP } from "@/lib/data/tw-stocks";
+import { TW_STOCK_MAP } from "@/lib/data/tw-stocks";
+import { createClient } from "@/lib/supabase/client";
 
 const MARKET_LABELS: Record<string, string> = {
   TW_LISTED: "上市",
@@ -33,6 +34,28 @@ export function TradeFormFields({
 
   // 股票代號自動帶出名稱：只要使用者沒有自己手動改過名稱，
   // 代號一有對應資料就自動覆蓋；使用者一旦手動編輯名稱欄位，就不再自動覆蓋。
+  //
+  // 名稱對照表來源有兩層：內建的精選常用清單（隨程式碼一起部署，永遠可用）
+  // 疊加上 price_cache 資料庫裡的全市場資料（在「設定」頁按過「立即同步」後才有），
+  // 資料庫版本涵蓋更完整，找得到時優先採用。
+  const [stockMap, setStockMap] = useState<Record<string, string>>(TW_STOCK_MAP);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("price_cache")
+      .select("stock_id, stock_name")
+      .then(({ data }) => {
+        if (!data || data.length === 0) return;
+        setStockMap((prev) => {
+          const merged = { ...prev };
+          for (const row of data as { stock_id: string; stock_name: string | null }[]) {
+            if (row.stock_name) merged[row.stock_id] = row.stock_name;
+          }
+          return merged;
+        });
+      });
+  }, []);
+
   const [stockId, setStockId] = useState(defaultValues?.stock_id ?? "");
   const [stockName, setStockName] = useState(defaultValues?.stock_name ?? "");
   const [stockNameAuto, setStockNameAuto] = useState(!defaultValues?.stock_name);
@@ -40,7 +63,7 @@ export function TradeFormFields({
   function handleStockIdChange(value: string) {
     setStockId(value);
     if (stockNameAuto) {
-      const matched = lookupStockName(value);
+      const matched = stockMap[value.trim().toUpperCase()];
       if (matched) setStockName(matched);
     }
   }
@@ -109,7 +132,7 @@ export function TradeFormFields({
           onChange={(e) => handleStockIdChange(e.target.value)}
         />
         <datalist id="tw-stock-id-options">
-          {Object.entries(TW_STOCK_MAP).map(([id, name]) => (
+          {Object.entries(stockMap).map(([id, name]) => (
             <option key={id} value={id}>
               {name}
             </option>
