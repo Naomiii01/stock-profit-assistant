@@ -25,8 +25,27 @@ export default async function DashboardPage() {
 
   const holdings = calculateAllHoldings(allTrades, method);
   const totalDividend = allDividends.reduce((s, d) => s + d.cash_dividend, 0);
-  // 尚未串接即時股價 API，未實現損益以「無報價」狀態呈現（priceMap 為空）
-  const summary = summarizePortfolio(holdings, {}, totalDividend);
+
+  // 從 price_cache 讀取每日收盤價（在「設定」頁同步過，或每日自動排程更新過的話就會有資料），
+  // 沒有對應資料的股票，未實現損益維持用成本估算，不會噴錯。
+  const openStockIds = Array.from(
+    new Set(holdings.filter((h) => h.remainingQuantity > 1e-6).map((h) => h.stockId))
+  );
+  let priceMap: Record<string, number> = {};
+  if (openStockIds.length > 0) {
+    const { data: priceRows } = await supabase
+      .from("price_cache")
+      .select("stock_id, last_price")
+      .in("stock_id", openStockIds);
+    priceMap = Object.fromEntries(
+      ((priceRows as { stock_id: string; last_price: number | null }[]) ?? [])
+        .filter((p) => p.last_price != null)
+        .map((p) => [p.stock_id, p.last_price as number])
+    );
+  }
+
+  const summary = summarizePortfolio(holdings, priceMap, totalDividend);
+  const hasAnyPrice = Object.keys(priceMap).length > 0;
 
   const firstTradeDate = allTrades[0]?.trade_date;
   const daysSinceStart = firstTradeDate
@@ -72,7 +91,11 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <StatCard label="總投入資金" value={formatCurrency(summary.totalInvested)} />
-        <StatCard label="總市值" value={formatCurrency(summary.totalMarketValue)} hint="未輸入現價時以成本估算" />
+        <StatCard
+          label="總市值"
+          value={formatCurrency(summary.totalMarketValue)}
+          hint={hasAnyPrice ? "依最近一次同步的收盤價估算" : "未同步過收盤價，暫以成本估算"}
+        />
         <StatCard
           label="已實現損益"
           value={formatCurrency(summary.totalRealizedPnl)}
@@ -81,7 +104,8 @@ export default async function DashboardPage() {
         <StatCard
           label="未實現損益"
           value={formatCurrency(summary.totalUnrealizedPnl)}
-          hint="請至持股管理輸入現價"
+          hint={hasAnyPrice ? undefined : "請至「設定」頁同步收盤價"}
+          tone={hasAnyPrice ? (summary.totalUnrealizedPnl >= 0 ? "up" : "down") : undefined}
         />
         <StatCard label="股利收入" value={formatCurrency(summary.totalDividend)} />
         <StatCard
