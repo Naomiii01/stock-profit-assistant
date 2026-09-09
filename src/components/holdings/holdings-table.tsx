@@ -10,7 +10,11 @@ import type { EngineResult } from "@/lib/portfolio/engine";
 import { createClient } from "@/lib/supabase/client";
 
 export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
+  // prices：現價輸入框即時對應的值，每打一個字都會更新，用來即時算市值/損益顯示。
+  // sortBasisPrices：只有在「離開輸入框」時才更新，排序只依這個為準，
+  // 這樣打字的時候表格才不會因為市值一直變動而一直跳來跳去、造成打不進去的錯覺。
   const [prices, setPrices] = useState<Record<string, number>>({});
+  const [sortBasisPrices, setSortBasisPrices] = useState<Record<string, number>>({});
   // 記錄哪些代號的現價是「自動帶入」的（來自每日收盤價同步），
   // 使用者手動改過的就不再被自動更新覆蓋掉。
   const [autoFilled, setAutoFilled] = useState<Record<string, boolean>>({});
@@ -27,10 +31,10 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
       .in("stock_id", stockIds)
       .then(({ data }) => {
         if (!data || data.length === 0) return;
+        const autoNext: Record<string, boolean> = {};
+        let latest: string | null = null;
         setPrices((prev) => {
           const next = { ...prev };
-          const autoNext: Record<string, boolean> = {};
-          let latest: string | null = null;
           for (const row of data as { stock_id: string; last_price: number | null; fetched_at: string | null }[]) {
             if (row.last_price == null) continue;
             // 只在使用者還沒手動填過這檔的現價時才自動帶入
@@ -40,13 +44,25 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
             }
             if (row.fetched_at && (!latest || row.fetched_at > latest)) latest = row.fetched_at;
           }
-          setAutoFilled((prevAuto) => ({ ...prevAuto, ...autoNext }));
-          if (latest) setPriceFetchedAt(latest);
           return next;
         });
+        setSortBasisPrices((prev) => {
+          const next = { ...prev };
+          for (const row of data as { stock_id: string; last_price: number | null }[]) {
+            if (row.last_price == null) continue;
+            if (next[row.stock_id] == null) next[row.stock_id] = row.last_price;
+          }
+          return next;
+        });
+        setAutoFilled((prevAuto) => ({ ...prevAuto, ...autoNext }));
+        if (latest) setPriceFetchedAt(latest);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holdings.length]);
+
+  function commitPrice(stockId: string) {
+    setSortBasisPrices((s) => ({ ...s, [stockId]: prices[stockId] }));
+  }
 
   const rows = useMemo(() => {
     const open = holdings.filter((h) => h.remainingQuantity > 1e-6);
@@ -55,15 +71,24 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
       const marketValue = price != null ? price * h.remainingQuantity : h.totalCostRemaining;
       const unrealizedPnl = price != null ? marketValue - h.totalCostRemaining : 0;
       const unrealizedPnlPct = h.totalCostRemaining > 0 ? (unrealizedPnl / h.totalCostRemaining) * 100 : 0;
-      return { ...h, price, marketValue, unrealizedPnl, unrealizedPnlPct };
+
+      // 排序專用的市值/獲利率，只跟著「已離開輸入框」的價格走，不會在打字時亂跳
+      const sortPrice = sortBasisPrices[h.stockId];
+      const sortMarketValue = sortPrice != null ? sortPrice * h.remainingQuantity : h.totalCostRemaining;
+      const sortUnrealizedPnlPct =
+        sortPrice != null && h.totalCostRemaining > 0
+          ? ((sortMarketValue - h.totalCostRemaining) / h.totalCostRemaining) * 100
+          : 0;
+
+      return { ...h, price, marketValue, unrealizedPnl, unrealizedPnlPct, sortMarketValue, sortUnrealizedPnlPct };
     });
 
     return withPrice.sort((a, b) => {
-      if (sortKey === "pnlPct") return b.unrealizedPnlPct - a.unrealizedPnlPct;
+      if (sortKey === "pnlPct") return b.sortUnrealizedPnlPct - a.sortUnrealizedPnlPct;
       if (sortKey === "cost") return b.totalCostRemaining - a.totalCostRemaining;
-      return b.marketValue - a.marketValue;
+      return b.sortMarketValue - a.sortMarketValue;
     });
-  }, [holdings, prices, sortKey]);
+  }, [holdings, prices, sortBasisPrices, sortKey]);
 
   if (rows.length === 0) {
     return (
@@ -95,7 +120,7 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>股票</TableHead>
+              <TableHead className="sticky left-0 z-10 bg-background">股票</TableHead>
               <TableHead className="text-right">股數</TableHead>
               <TableHead className="text-right">平均成本</TableHead>
               <TableHead className="text-right">現價</TableHead>
@@ -108,7 +133,7 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.stockId}>
-                <TableCell>
+                <TableCell className="sticky left-0 z-10 bg-background">
                   <span className="font-medium">{r.stockId}</span>{" "}
                   <span className="text-muted-foreground">{r.stockName}</span>
                 </TableCell>
@@ -126,6 +151,7 @@ export function HoldingsTable({ holdings }: { holdings: EngineResult[] }) {
                       setPrices((p) => ({ ...p, [r.stockId]: value === "" ? 0 : Number(value) }));
                       setAutoFilled((a) => ({ ...a, [r.stockId]: false }));
                     }}
+                    onBlur={() => commitPrice(r.stockId)}
                   />
                   {autoFilled[r.stockId] && (
                     <p className="mt-0.5 text-[10px] text-muted-foreground">自動帶入</p>
